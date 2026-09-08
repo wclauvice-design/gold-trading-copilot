@@ -1,0 +1,10 @@
+.env
+journal.db
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.log
+.DS_Store
+node_modules/
+.vercel

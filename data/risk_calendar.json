@@ -1,0 +1,16 @@
+[
+  {
+    "datetime_utc": "2026-09-04T12:30:00",
+    "event": "EXEMPLE - NFP (Nonfarm Payrolls US)",
+    "currency": "USD",
+    "impact": "high",
+    "note": "A REMPLACER : mettez a jour cette liste chaque dimanche soir avec les evenements de la semaine (ForexFactory, Investing.com ou Trading Economics -> section calendrier, filtre impact eleve USD/or)."
+  },
+  {
+    "datetime_utc": "2026-09-17T18:00:00",
+    "event": "EXEMPLE - Decision de taux FOMC",
+    "currency": "USD",
+    "impact": "high",
+    "note": "A REMPLACER : verifiez la date exacte sur le calendrier de la Fed (federalreserve.gov) avant chaque reunion."
+  }
+]
