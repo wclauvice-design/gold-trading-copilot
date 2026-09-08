@@ -49,7 +49,15 @@ async def basic_auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-journal_db.init_db()
+try:
+    journal_db.init_db()
+except Exception as exc:  # pragma: no cover - defensif : la BDD peut ne pas
+    # encore etre configuree (ex: premier deploiement Vercel avant l'ajout du
+    # stockage Postgres). Le dashboard et les recommandations restent
+    # fonctionnels ; seul le journal renverra une erreur claire (voir
+    # _journal_call ci-dessous) jusqu'a ce que DATABASE_URL/POSTGRES_URL soit
+    # configure puis que l'app redemarre.
+    print(f"[warning] Initialisation du journal impossible au demarrage : {exc}")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -137,11 +145,25 @@ class CloseTradeRequest(BaseModel):
     notes: Optional[str] = None
 
 
+def _journal_call(fn, *args, **kwargs):
+    """Execute un appel au journal en transformant toute erreur de base de
+    donnees en 503 clair, plutot que de faire planter la requete (utile tant
+    que Postgres n'est pas encore branche en production)."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Journal indisponible : la base de donnees n'est pas prete ou pas configuree ({exc})",
+        )
+
+
 @app.post("/api/journal/trades")
 def api_create_trade(body: LogTradeRequest):
     if body.direction not in ("long", "short"):
         raise HTTPException(status_code=400, detail="direction doit etre 'long' ou 'short'")
-    trade_id = journal_db.create_trade(
+    trade_id = _journal_call(
+        journal_db.create_trade,
         direction=body.direction,
         triggering_strategies=body.triggering_strategies,
         confidence_at_signal=body.confidence_at_signal,
@@ -151,17 +173,17 @@ def api_create_trade(body: LogTradeRequest):
         rationale_snapshot=body.rationale_snapshot,
         notes=body.notes,
     )
-    return journal_db.get_trade(trade_id)
+    return _journal_call(journal_db.get_trade, trade_id)
 
 
 @app.get("/api/journal/trades")
 def api_list_trades(status: Optional[str] = None):
-    return journal_db.list_trades(status=status)
+    return _journal_call(journal_db.list_trades, status=status)
 
 
 @app.get("/api/journal/trades/{trade_id}")
 def api_get_trade(trade_id: int):
-    trade = journal_db.get_trade(trade_id)
+    trade = _journal_call(journal_db.get_trade, trade_id)
     if trade is None:
         raise HTTPException(status_code=404, detail="Trade introuvable")
     return trade
@@ -169,28 +191,29 @@ def api_get_trade(trade_id: int):
 
 @app.patch("/api/journal/trades/{trade_id}/execution")
 def api_update_execution(trade_id: int, body: ExecutionUpdate):
-    if journal_db.get_trade(trade_id) is None:
+    if _journal_call(journal_db.get_trade, trade_id) is None:
         raise HTTPException(status_code=404, detail="Trade introuvable")
-    journal_db.update_execution(
+    _journal_call(
+        journal_db.update_execution,
         trade_id, body.actual_entry, body.actual_sl, body.actual_tp, body.lot_size, body.notes
     )
-    return journal_db.get_trade(trade_id)
+    return _journal_call(journal_db.get_trade, trade_id)
 
 
 @app.patch("/api/journal/trades/{trade_id}/close")
 def api_close_trade(trade_id: int, body: CloseTradeRequest):
-    if journal_db.get_trade(trade_id) is None:
+    if _journal_call(journal_db.get_trade, trade_id) is None:
         raise HTTPException(status_code=404, detail="Trade introuvable")
-    journal_db.close_trade(trade_id, body.actual_exit_price, body.notes)
-    return journal_db.get_trade(trade_id)
+    _journal_call(journal_db.close_trade, trade_id, body.actual_exit_price, body.notes)
+    return _journal_call(journal_db.get_trade, trade_id)
 
 
 @app.delete("/api/journal/trades/{trade_id}")
 def api_delete_trade(trade_id: int):
-    journal_db.delete_trade(trade_id)
+    _journal_call(journal_db.delete_trade, trade_id)
     return {"ok": True}
 
 
 @app.get("/api/journal/stats")
 def api_journal_stats():
-    return journal_db.get_stats()
+    return _journal_call(journal_db.get_stats)
